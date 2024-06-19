@@ -174,7 +174,7 @@ const getFilePathFromURL = (url) => {
   
         const albumData = albumDoc.data();
         if(albumData.ownerId && albumData.ownerId === userId){
-            throw new Error ('User is owner.')
+            throw new Error ('You are the owner.')
         }
 
         if (albumData.sharedWith && albumData.sharedWith.includes(userId)) {
@@ -246,83 +246,85 @@ const getFilePathFromURL = (url) => {
         }
       }
   
-      res.status(200).send('Shared successfully');
+      res.status(200).json({result: 'success', message: 'Album added successfully'});
     } catch (error) {
       console.error(error);
-      res.status(500).send(error.message);
+      if(error.message === 'User is owner'){
+        res.status(409).json({result: 'error', message: 'User is owner'})
+      }
+      res.status(500).json({result: 'error', message: error.message});
     }
   });
 
-app.post('/upload-audio', upload.array('files', 15), async (req, res) => {
-  try {
-    console.log("Upload Request triggered", req.body, "User Id: ", req.user.uid);
-    const { albumId, songId, trackNames, trackNumbers, songName, albumName, songNumber } = req.body;
-    const files = req.files;
-    const userId = req.user.uid;
-    console.log("Track numbers: ", trackNumbers);
-    const fullUser = admin.auth().getUser(userId);
-    const userName = (await fullUser).displayName;
-
-    if (!files || files.length === 0) {
-      return res.status(400).json({ error: 'No files uploaded' });
-    }
-
-    ensureTmpDirExists();
-
-    // Get album data
-    const albumRef = db.collection('albums').doc(albumId)
-    const albumDoc = await albumRef.get()
-    const albumData = albumDoc.data()
-    const sharedWith = albumData.sharedWith ? albumData.sharedWith : [] // Array of users the song is shared with
-
-    // Get song data
-    const songRef = db.collection('albums').doc(albumId).collection('songs').doc(songId);
-    const songDoc = await songRef.get();
-
-    const promises = files.map(async (file, index) => {
-      const tempFilePath = path.join(__dirname, 'tmp', file.originalname);
-      await fs.promises.writeFile(tempFilePath, file.buffer);
-
-      const compressedFilePath = path.join(__dirname, 'tmp', `compressed-${file.originalname}`);
-      return new Promise((resolve, reject) => {
-        console.log("Compressing file: ", file.originalname);
-        ffmpeg(tempFilePath)
-          .audioBitrate('96k')
-          .save(compressedFilePath)
-          .on('end', async () => {
-            try {
-              const compressedFile = await fs.promises.readFile(compressedFilePath);
-              const compressedFileSize = compressedFile.length;
-
-              const storageCheck = await checkStorageLimit(userId, compressedFileSize);
-              if (storageCheck.status === 'error') {
-                console.log(`Client ${userId} exceeded storage limit`)
-                resolve({ status: 'error', message: storageCheck.message });
-                return;
-              }
-
-              const trackName = trackNames[index];
-              const trackNumber = trackNumbers[index];
-              const newFileName = `${songId}_${trackName}.mp3`;
-              const file = storage.file(`sounds/${albumId}/${songId}/${newFileName}`);
-              console.log('Saving file to storage: ', file.id);
-              const metadata = {
+  app.post('/upload-audio', upload.array('files', 15), async (req, res) => {
+    try {
+      console.log("Upload Request triggered", req.body, "User Id: ", req.user.uid);
+      const { albumId, songId, trackNames, trackNumbers, songName, albumName, songNumber } = req.body;
+      const files = req.files;
+      const userId = req.user.uid;
+      console.log("Track numbers: ", trackNumbers);
+      const fullUser = admin.auth().getUser(userId);
+      const userName = (await fullUser).displayName;
+  
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: 'No files uploaded' });
+      }
+  
+      ensureTmpDirExists();
+  
+      // Get album data
+      const albumRef = db.collection('albums').doc(albumId);
+      const albumDoc = await albumRef.get();
+      const albumData = albumDoc.data();
+      const sharedWith = albumData.sharedWith ? albumData.sharedWith : []; // Array of users the song is shared with
+  
+      // Get song data
+      const songRef = db.collection('albums').doc(albumId).collection('songs').doc(songId);
+      const songDoc = await songRef.get();
+  
+      // Array to accumulate track data
+      const trackDataArray = [];
+  
+      const promises = files.map(async (file, index) => {
+        const tempFilePath = path.join(__dirname, 'tmp', file.originalname);
+        await fs.promises.writeFile(tempFilePath, file.buffer);
+  
+        const compressedFilePath = path.join(__dirname, 'tmp', `compressed-${file.originalname}`);
+        return new Promise((resolve, reject) => {
+          console.log("Compressing file: ", file.originalname);
+          ffmpeg(tempFilePath)
+            .audioBitrate('96k')
+            .save(compressedFilePath)
+            .on('end', async () => {
+              try {
+                const compressedFile = await fs.promises.readFile(compressedFilePath);
+                const compressedFileSize = compressedFile.length;
+  
+                const storageCheck = await checkStorageLimit(userId, compressedFileSize);
+                if (storageCheck.status === 'error') {
+                  console.log(`Client ${userId} exceeded storage limit`);
+                  resolve({ status: 'error', message: storageCheck.message });
+                  return;
+                }
+  
+                const trackName = trackNames[index];
+                const trackNumber = trackNumbers[index];
+                const newFileName = `${songId}_${trackName}.mp3`;
+                const file = storage.file(`sounds/${albumId}/${songId}/${newFileName}`);
+                console.log('Saving file to storage: ', file.id);
+                const metadata = {
                   metadata: {
-                      contentType: 'audio/mpeg',
-                          ownerId: userId,
-                          sharedWith: sharedWith.join(','),
+                    contentType: 'audio/mpeg',
+                    ownerId: userId,
+                    sharedWith: sharedWith.join(','),
                   }
-              };
-              await file.save(compressedFile, metadata);
-              console.log("Setting metadata")
-              await file.setMetadata(metadata);
-
-              const newSrc = file.publicUrl();
-
-              console.log("Song Doc: ", songDoc.exists);
-              if (songDoc.exists) {
-                const songData = songDoc.data();
-                console.log("SONG DATA: ", songData);
+                };
+                await file.save(compressedFile, metadata);
+                console.log("Setting metadata");
+                await file.setMetadata(metadata);
+  
+                const newSrc = file.publicUrl();
+  
                 const trackData = {
                   id: uuidv4(),
                   name: trackName,
@@ -331,62 +333,58 @@ app.post('/upload-audio', upload.array('files', 15), async (req, res) => {
                   ownerId: userId,
                   ownerName: userName
                 };
-                await songRef.update({
-                  tracks: admin.firestore.FieldValue.arrayUnion(trackData)
-                });
-                console.log("Added track");
-              } else {
-                const songData = {
-                  name: songName,
-                  number: songNumber,
-                  ownerId: userId,
-                  sharedWith: sharedWith,
-                  tracks: [],
-                  lrcs: []
-                };
-
-                songData.tracks.push({
-                  id: uuidv4(),
-                  name: trackName,
-                  src: newSrc,
-                  number: trackNumber,
-                  ownerId: userId,
-                  ownerName: userName
-                });
-
-                console.log("Updating Firestore with new track references", songData);
-
-                await songRef.set(songData);
+  
+                // Accumulate track data
+                trackDataArray.push(trackData);
+  
+                resolve({ status: 'success' });
+              } catch (error) {
+                reject(error);
+              } finally {
+                fs.promises.unlink(tempFilePath).catch(console.error);
+                fs.promises.unlink(compressedFilePath).catch(console.error);
+                console.log('Upload successful.');
               }
-              resolve({ status: 'success' });
-            } catch (error) {
+            })
+            .on('error', (error) => {
+              console.error("Upload failed: ", error.message);
               reject(error);
-            } finally {
-              fs.promises.unlink(tempFilePath).catch(console.error);
-              fs.promises.unlink(compressedFilePath).catch(console.error);
-              console.log('Upload successful.')
-            }
-          })
-          .on('error', (error) => {
-            console.error("Upload failed: ", error.message)
-            reject(error);
-          });
+            });
+        });
       });
-    });
-
-    const results = await Promise.all(promises);
-
-    const errors = results.filter(result => result.status === 'error');
-    if (errors.length > 0) {
-      return res.status(507).json({ message: errors[0].message });
+  
+      const results = await Promise.all(promises);
+  
+      const errors = results.filter(result => result.status === 'error');
+      if (errors.length > 0) {
+        return res.status(507).json({ message: errors[0].message });
+      }
+  
+      // Perform a single update to Firestore with all track data
+      if (songDoc.exists) {
+        await songRef.update({
+          tracks: admin.firestore.FieldValue.arrayUnion(...trackDataArray)
+        });
+        console.log("Updated existing song with new tracks");
+      } else {
+        const songData = {
+          name: songName,
+          number: songNumber,
+          ownerId: userId,
+          sharedWith: sharedWith,
+          tracks: trackDataArray,
+          lrcs: []
+        };
+        await songRef.set(songData);
+        console.log("Created new song with tracks");
+      }
+  
+      res.status(200).json({ message: 'Audio files uploaded and compressed successfully' });
+    } catch (error) {
+      console.error("Error: ", error);
+      res.status(500).json({ error: error.message });
     }
-
-    res.status(200).json({ message: 'Audio files uploaded and compressed successfully' });
-  } catch (error) {
-    console.error("Error: ", error)
-    res.status(500).json({ error: error.message });
-  }
-});
+  });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
