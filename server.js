@@ -11,6 +11,7 @@ const authenticate = require('./authMiddleware');
 const cors = require('cors');
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
+const {createProxyMiddleware} = require('http-proxy-middleware')
 const { v4: uuidv4 } = require('uuid');
 // const {rootStorage} = require('./firebaseClient');
 
@@ -49,6 +50,16 @@ const checkStorageLimit = async (userId, newFileSize) => {
 };
 
 app.use(express.static(path.join(__dirname, 'dist')));
+
+// Proxy auth requests to firebaseapp.com
+const firebaseAuthDomain = 'rehearsalrocket.firebaseapp.com';
+app.use('/__/auth', createProxyMiddleware({
+  target: `https://${firebaseAuthDomain}`,
+  changeOrigin: true,
+  pathRewrite: {
+    '^/__/auth': '/__/auth',
+  },
+}));
 
 app.get('/hello', async (req, res) => {
     return res.status(200).send('Hello');
