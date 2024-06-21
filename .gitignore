@@ -4,3 +4,4 @@ firebaseAdmin.js
 firebaseClient.js
 tmp
 dist
+signin_helpers

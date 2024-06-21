@@ -51,15 +51,82 @@ const checkStorageLimit = async (userId, newFileSize) => {
 
 app.use(express.static(path.join(__dirname, 'dist')));
 
+// Function to download sign-in helper files
+const downloadSignInHelperFiles = async () => {
+  const fetch = (await import('node-fetch')).default;
+  const files = [
+    'handler',
+    'handler.js',
+    'experiments.js',
+    'iframe',
+    'iframe.js',
+  ];
+
+  const baseUrl = 'https://rehearsalrocket.firebaseapp.com/__/auth/';
+  const destDir = path.join(__dirname, 'signin_helpers');
+
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true });
+  }
+
+  const downloadPromises = files.map(async (file) => {
+    const url = file === 'firebase/init.json' ? `https://rehearsalrocket.firebaseapp.com/${file}` : `${baseUrl}${file}`;
+    const res = await fetch(url);
+    const text = await res.text();
+    fs.writeFileSync(path.join(destDir, file), text);
+  });
+
+  await Promise.all(downloadPromises);
+};
+
+// Function to check if helper files need to be updated
+const checkAndDownloadHelperFiles = async () => {
+  const timestampFile = path.join(__dirname, 'signin_helpers', 'last_update.txt');
+  const now = new Date();
+  const period = 48 * 60 * 60 * 1000; // 48 hours
+
+  if (fs.existsSync(timestampFile)) {
+    const lastUpdate = new Date(fs.readFileSync(timestampFile, 'utf-8'));
+    if (now - lastUpdate < period) {
+      console.log('Helper files are up-to-date.');
+      return;
+    }
+  }
+
+  console.log('Downloading sign-in helper files...');
+  await downloadSignInHelperFiles();
+  fs.writeFileSync(timestampFile, now.toISOString());
+};
+
+// Download sign-in helper files on server startup if needed
+checkAndDownloadHelperFiles().then(() => {
+  console.log('Sign-in helper files checked on startup.');
+}).catch((err) => {
+  console.error('Error checking sign-in helper files:', err);
+});
+
+// Schedule periodic check (every 24 hours)
+// cron.schedule('0 0 * * *', () => {
+//   checkAndDownloadHelperFiles().then(() => {
+//     console.log('Sign-in helper files checked by scheduler.');
+//   }).catch((err) => {
+//     console.error('Error checking sign-in helper files by scheduler:', err);
+//   });
+// });
+
 // Proxy auth requests to firebaseapp.com
-const firebaseAuthDomain = 'rehearsalrocket.firebaseapp.com';
-app.use('/__/auth', createProxyMiddleware({
-  target: `https://${firebaseAuthDomain}`,
-  changeOrigin: true,
-  pathRewrite: {
-    '^/__/auth': '/__/auth',
-  },
-}));
+// const firebaseAuthDomain = 'rehearsalrocket.firebaseapp.com';
+// app.use('/__/auth', createProxyMiddleware({
+//   target: `https://${firebaseAuthDomain}`,
+//   changeOrigin: true,
+//   pathRewrite: {
+//     '^/__/auth': '/__/auth',
+//   },
+// }));
+
+// Use self hosted signin helper code
+app.use('/__/auth', express.static(path.join(__dirname, 'signin_helpers')));
+app.use('/__/firebase', express.static(path.join(__dirname, 'signin_helpers/firebase')));
 
 app.get('/hello', async (req, res) => {
     return res.status(200).send('Hello');
