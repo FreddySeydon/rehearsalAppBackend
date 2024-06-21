@@ -48,83 +48,16 @@ const checkStorageLimit = async (userId, newFileSize) => {
   return { status: 'success', newStorageUsage };
 };
 
-// Ensure all routes below this line require authentication
-app.use(authenticate);
+app.use(express.static(path.join(__dirname, 'dist')));
 
 app.get('/hello', async (req, res) => {
     return res.status(200).send('Hello');
 });
 
-app.post('/upload-lyrics', upload.single('file'), async (req, res) => {
-  try {
-    const { albumId, songId, trackId, trackName } = req.body;
-    const newFile = req.file;
-    const userId = req.user.uid;
+// Use auth for server routes
+app.use('/sharecode', authenticate)
+app.use('/upload-audio', authenticate)
 
-    if (!newFile) {
-      return res.status(400).send('No file uploaded');
-    }
-
-    const newFileSize = newFile.size;
-    const storageCheck = await checkStorageLimit(userId, newFileSize);
-    if (storageCheck.status === 'error') {
-        console.log('Client exceeded storage limit')
-      return res.status(507).json({ message: storageCheck.message });
-    }
-
-    const newFileName = `${songId}_${trackName}_track-${trackId}.lrc`;
-    const file = storage.file(`sounds/${albumId}/${songId}/${newFileName}`);
-    await file.save(newFile.buffer, {
-      metadata: { contentType: 'text/plain' },
-    });
-
-    const newSrc = file.publicUrl();
-    const songRef = db.collection('albums').doc(albumId).collection('songs').doc(songId);
-    const songDoc = await songRef.get();
-    const songData = songDoc.data();
-
-    const existingLrc = songData.lrcs?.find((lrc) => lrc.trackId === parseInt(trackId));
-    if (existingLrc) {
-      await storage.file(existingLrc.lrc).delete();
-    }
-
-    const updatedLrcs = songData.lrcs || [];
-    const lrcIndex = updatedLrcs.findIndex((lrc) => lrc.trackId === parseInt(trackId));
-
-    if (lrcIndex > -1) {
-      updatedLrcs[lrcIndex].lrc = newSrc;
-    } else {
-      updatedLrcs.push({ trackId: parseInt(trackId), trackName, lrc: newSrc });
-    }
-
-    await songRef.update({ lrcs: updatedLrcs });
-    res.status(200).send('LRC updated successfully');
-  } catch (error) {
-    res.status(500).send(error.message);
-  }
-});
-
-app.post('/share', async (req, res) => {
-  try {
-    const { albumId, songId, shareWithUserId } = req.body;
-
-    if (songId) {
-      const songRef = db.collection('albums').doc(albumId).collection('songs').doc(songId);
-      await songRef.update({
-        sharedWith: admin.firestore.FieldValue.arrayUnion(shareWithUserId),
-      });
-    } else {
-      const albumRef = db.collection('albums').doc(albumId);
-      await albumRef.update({
-        sharedWith: admin.firestore.FieldValue.arrayUnion(shareWithUserId),
-      });
-    }
-
-    res.status(200).send('Shared successfully');
-  } catch (error) {
-    res.status(500).send(error.message);
-  }
-});
 
 
 // Helper function to extract file path from URL
@@ -385,6 +318,10 @@ const getFilePathFromURL = (url) => {
       res.status(500).json({ error: error.message });
     }
   });
+
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  })
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
