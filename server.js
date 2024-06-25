@@ -311,7 +311,8 @@ const getFilePathFromURL = (url) => {
             .outputOptions([
               '-acodec aac',
               '-b:a 96k',
-              '-f mp4'
+              '-f mp4',
+              '-vn'
             ])
             .save(compressedFilePath)
             .on('start', commandLine => {
@@ -321,7 +322,7 @@ const getFilePathFromURL = (url) => {
               console.log('Input is ' + data.audio + ' audio with ' + data.video + ' video');
             })
             .on('progress', progress => {
-              console.log('Processing: ' + progress + '% done');
+              console.log('Processing: ' + progress.timemark);
             })
             .on('end', async () => {
               try {
@@ -334,8 +335,13 @@ const getFilePathFromURL = (url) => {
                   resolve({ status: 'error', message: storageCheck.message });
                   return;
                 }
-  
-                const trackName = trackNames[index];
+
+                let trackName = ''
+                if(Array.isArray(trackNames)){
+                  trackName = trackNames[index];
+                } else {
+                  trackName = trackNames
+                }
                 const trackNumber = parseInt(trackNumbers[index]);
                 const newFileName = `${songId}_${trackName}.aac`;
                 const file = storage.file(`sounds/${albumId}/${songId}/${newFileName}`);
