@@ -11,7 +11,7 @@ const authenticate = require('./authMiddleware');
 const cors = require('cors');
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
-const {createProxyMiddleware} = require('http-proxy-middleware')
+// const {createProxyMiddleware} = require('http-proxy-middleware')
 const { v4: uuidv4 } = require('uuid');
 // const {rootStorage} = require('./firebaseClient');
 
@@ -288,6 +288,10 @@ const getFilePathFromURL = (url) => {
       const albumDoc = await albumRef.get();
       const albumData = albumDoc.data();
       const sharedWith = albumData.sharedWith ? albumData.sharedWith : []; // Array of users the song is shared with
+      const albumOwnerId = albumData.ownerId ? albumData.ownerId : userId;
+      if(albumOwnerId !== userId){
+        sharedWith.push(ownerId);
+      }
   
       // Get song data
       const songRef = db.collection('albums').doc(albumId).collection('songs').doc(songId);
@@ -304,8 +308,21 @@ const getFilePathFromURL = (url) => {
         return new Promise((resolve, reject) => {
           console.log("Compressing file: ", file.originalname);
           ffmpeg(tempFilePath)
-            .audioBitrate('96k')
+            .outputOptions([
+              '-acodec aac',
+              '-b:a 96k',
+              '-f mp4'
+            ])
             .save(compressedFilePath)
+            .on('start', commandLine => {
+              console.log('Spawned ffmpeg with command: ' + commandLine);
+            })
+            .on('codecData', data => {
+              console.log('Input is ' + data.audio + ' audio with ' + data.video + ' video');
+            })
+            .on('progress', progress => {
+              console.log('Processing: ' + progress + '% done');
+            })
             .on('end', async () => {
               try {
                 const compressedFile = await fs.promises.readFile(compressedFilePath);
@@ -319,13 +336,13 @@ const getFilePathFromURL = (url) => {
                 }
   
                 const trackName = trackNames[index];
-                const trackNumber = trackNumbers[index];
-                const newFileName = `${songId}_${trackName}.mp3`;
+                const trackNumber = parseInt(trackNumbers[index]);
+                const newFileName = `${songId}_${trackName}.aac`;
                 const file = storage.file(`sounds/${albumId}/${songId}/${newFileName}`);
                 console.log('Saving file to storage: ', file.id);
                 const metadata = {
                   metadata: {
-                    contentType: 'audio/mpeg',
+                    contentType: 'audio/aac',
                     ownerId: userId,
                     sharedWith: sharedWith.join(','),
                   }
@@ -357,8 +374,10 @@ const getFilePathFromURL = (url) => {
                 console.log('Upload successful.');
               }
             })
-            .on('error', (error) => {
+            .on('error', (error, stdout, stderr) => {
               console.error("Upload failed: ", error.message);
+              console.error('ffmpeg stdout:', stdout);
+              console.error('ffmpeg stderr:', stderr);
               reject(error);
             });
         });
