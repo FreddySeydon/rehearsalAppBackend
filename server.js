@@ -287,8 +287,8 @@ const getFilePathFromURL = (url) => {
       const albumRef = db.collection('albums').doc(albumId);
       const albumDoc = await albumRef.get();
       const albumData = albumDoc.data();
-      const sharedWith = albumData.sharedWith ? albumData.sharedWith : []; // Array of users the song is shared with
-      const albumOwnerId = albumData.ownerId ? albumData.ownerId : userId;
+      const sharedWith = albumData?.sharedWith ? albumData?.sharedWith : []; // Array of users the song is shared with
+      const albumOwnerId = albumData?.ownerId ? albumData?.ownerId : userId;
       if(albumOwnerId !== userId){
         sharedWith.push(ownerId);
       }
