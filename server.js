@@ -270,10 +270,11 @@ const getFilePathFromURL = (url) => {
   app.post('/upload-audio', upload.array('files', 15), async (req, res) => {
     try {
       console.log("Upload Request triggered", req.body, "User Id: ", req.user.uid);
-      const { albumId, songId, trackNames, trackNumbers, songName, albumName, songNumber } = req.body;
+      const { albumId, songId, trackNames, trackNumbers, songName, albumName, songNumber, makeAlbumPublic } = req.body;
       const files = req.files;
       const userId = req.user.uid;
       console.log("Track numbers: ", trackNumbers);
+      console.log("Make Public: ", makeAlbumPublic);
       const fullUser = admin.auth().getUser(userId);
       const userName = (await fullUser).displayName;
   
@@ -291,6 +292,10 @@ const getFilePathFromURL = (url) => {
       const albumOwnerId = albumData?.ownerId ? albumData?.ownerId : userId;
       if(albumOwnerId !== userId){
         sharedWith.push(ownerId);
+      }
+
+      if(makeAlbumPublic){
+        sharedWith.push("public")
       }
   
       // Get song data
@@ -411,6 +416,15 @@ const getFilePathFromURL = (url) => {
           tracks: trackDataArray,
           lrcs: []
         };
+        const albumData = {
+          name: albumName,
+          ownerId: userId,
+          sharedWith: sharedWith,
+          ownerName: userName
+        }
+        if(!albumDoc.exists){
+          albumRef.set(albumData);
+        }
         await songRef.set(songData);
         console.log("Created new song with tracks");
       }
